@@ -14,5 +14,5 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'pos.settings')
 
 application = get_wsgi_application()
 
-# Vercel deployment point
+# Vercel ko entry point dene ke liye:
 app = application
