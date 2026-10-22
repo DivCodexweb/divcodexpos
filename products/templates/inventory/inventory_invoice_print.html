@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Invoice Print</title>
+    <style>
+        @media print { .no-print { display: none; } }
+        body { font-family: 'Courier New', Courier, monospace; width: 80mm; font-size: 12px; margin: 0; padding: 10px; }
+        .text-center { text-align: center; }
+        .line { border-bottom: 1px dashed #000; margin: 5px 0; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 4px 0; }
+    </style>
+</head>
+<body>
+    <div class="text-center">
+        <h2 style="margin:0; font-size: 16px;">DivCodeX POS</h2>
+        <p style="margin: 3px 0; font-size: 11px;">Sargodha, Pakistan<br>Contact: 0321-0410033</p>
+    </div>
+    
+    <div class="line"></div>
+    
+    <p style="margin: 5px 0; line-height: 1.4;">
+        <strong>Inv No:</strong> <span id="print-inv"></span><br>
+        <strong>Date:</strong> <span id="print-date"></span><br>
+        <strong>Customers:</strong> <span id="print-customer"></span><br>
+        <strong>Mobile:</strong> <span id="print-mobile"></span>
+    </p>
+    
+    <div class="line"></div>
+    
+    <table>
+        <thead>
+            <tr>
+                <th align="left" style="width: 50%;">Item</th>
+                <th align="center" style="width: 20%;">Qty</th>
+                <th align="right" style="width: 30%;">Total</th>
+            </tr>
+        </thead>
+        <tbody id="invoice-items-body">
+            </tbody>
+    </table>
+    
+    <div class="line"></div>
+    
+    <table style="width: 100%;">
+        <tr>
+            <td align="left">Subtotal:</td>
+            <td align="right">Rs. <span id="print-subtotal">0.00</span></td>
+        </tr>
+        <tr>
+            <td align="left">Discount:</td>
+            <td align="right">Rs. 0.00</td>
+        </tr>
+        <tr>
+            <td align="left"><strong>Total:</strong></td>
+            <td align="right"><strong>Rs. <span id="print-total">0.00</span></strong></td>
+        </tr>
+        <tr>
+            <td align="left" style="font-size: 11px; color: #555; padding-top: 4px;">Net Outstanding:</td>
+            <td align="right" style="font-size: 11px; color: #555; padding-top: 4px;">Rs. <span id="print-outstanding">0.00</span></td>
+        </tr>
+    </table>
+    
+    <div class="line"></div>
+    
+    <div class="text-center" style="margin-top: 15px;">
+        <p style="font-size: 10px; margin: 0;">Thank you for your business!</p>
+        <p style="font-size: 9px; color: #666; margin: 2px 0;">Powered by DivCodeX</p>
+    </div>
+
+    <div class="text-center no-print" style="margin-top: 20px;">
+        <button onclick="window.print()" style="padding: 6px 15px; font-weight: bold; cursor: pointer;">Print Again</button>
+    </div>
+
+    <script>
+        window.onload = function() {
+            // localStorage se response data fetch kiya
+            let rawData = localStorage.getItem('last_invoice_data');
+            console.log("Fetched raw invoice data from localStorage:", rawData);
+            if (rawData) {
+                let data = JSON.parse(rawData);
+                
+                // 1. Invoice Number aur Date Map karein
+                document.getElementById('print-inv').innerText = data.invoice_no || 'N/A';
+                
+                if (data.date) {
+                    document.getElementById('print-date').innerText = data.date;
+                } else {
+                    let current = new Date();
+                    document.getElementById('print-date').innerText = current.toLocaleString('en-PK', { hour12: true });
+                }
+                
+                // 2. Customer details mapping
+                document.getElementById('print-customer').innerText = data.customer_name || 'Walking Customer';
+                document.getElementById('print-mobile').innerText = data.customer_number || 'N/A';
+                
+                // 3. Totals mapping
+                let finalBill = data.total_bill_rs ? parseFloat(data.total_bill_rs).toFixed(2) : '0.00';
+                document.getElementById('print-subtotal').innerText = finalBill;
+                document.getElementById('print-total').innerText = finalBill;
+                
+                let outstandingBalance = data.new_balance ? parseFloat(data.new_balance).toFixed(2) : '0.00';
+                document.getElementById('print-outstanding').innerText = outstandingBalance;
+                
+                // 4. Products Rendering Loop
+                let itemsBody = document.getElementById('invoice-items-body');
+                itemsBody.innerHTML = '';
+                
+                if (data.products && data.products.length > 0) {
+                    data.products.forEach(item => {
+                        let itemTotal = item.total_rs ? parseFloat(item.total_rs).toFixed(2) : (parseFloat(item.rate) * parseInt(item.quantity)).toFixed(2);
+                        
+                        let row = `<tr>
+                            <td align="left">${item.product_name}</td>
+                             <td align="center">${item.quantity}</td>
+                              <td align="center">${item.rate}</td>
+                            <td align="center">${item.total_rs}</td>
+                        </tr>`;
+                        itemsBody.innerHTML += row;
+                    });
+                } else {
+                    itemsBody.innerHTML = `<tr><td colspan="3" align="center">No items found</td></tr>`;
+                }
+                
+                // CRITICAL FIX: Browser ko pehle HTML elements render karne ka time dein, phir print dialog khule
+                requestAnimationFrame(() => {
+                    setTimeout(function() {
+                        window.print();
+                    }, 800); // 800ms delay safe execution ke liye
+                });
+
+            } else {
+                alert("LocalStorage mein 'last_invoice_data' nahi mila!");
+            }
+        };
+    </script>
+</body>
+</html>

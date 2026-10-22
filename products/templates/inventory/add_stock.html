@@ -1,0 +1,179 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-md-4">
+            <div class="card shadow border-0 rounded-3 mb-4">
+                <div class="card-header bg-primary text-white py-3">
+                    <h5 class="m-0 fw-bold"><i class="bi bi-box-seam me-2"></i>Add Inventory Stock</h5>
+                </div>
+                <div class="card-body p-4">
+                    <form method="post" action="{% url 'add_inventory_stock' %}">
+                        {% csrf_token %}
+                        
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold"><i class="bi bi-tags me-1"></i>Product Name</label>
+                            <input type="text" name="name" class="form-control" placeholder="e.g., Surf Excel 1kg" required>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold"><i class="bi bi-grid-3x3-gap me-1"></i>Category</label>
+                            <select name="category" class="form-select" required>
+                                <option value="" selected disabled>Select Category</option>
+                                {% for cat in categories %}
+                                    <option value="{{ cat.id }}">{{ cat.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold"><i class="bi bi-qr-code-scan me-1"></i>Barcode</label>
+                            <div class="input-group">
+                                <span class="input-group-text bg-white"><i class="bi bi-upc-scan"></i></span>
+                                <input type="text" name="barcode" class="form-control" placeholder="Scan or Type Barcode" required>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label fw-semibold"><i class="bi bi-stack me-1"></i>Stock (Qty)</label>
+                                <input type="number" name="stock" class="form-control" min="0" value="0" required>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label fw-semibold"><i class="bi bi-calendar-event me-1"></i>Expiry Date</label>
+                                <input type="date" name="expiry_date" class="form-control">
+                            </div>
+                        </div>
+                        
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label fw-semibold"><i class="bi bi-currency-dollar me-1"></i>Retail (Rs.)</label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-white">Rs.</span>
+                                    <input type="number" step="0.01" name="price" class="form-control" placeholder="200" required>
+                                </div>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label fw-semibold"><i class="bi bi-percent me-1"></i>TP Margin</label>
+                                <div class="input-group">
+                                    <input type="number" step="0.01" name="tp_percent" class="form-control" placeholder="5" value="0">
+                                    <span class="input-group-text bg-white">%</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary w-100 py-2 fw-semibold mt-2">
+                            <i class="bi bi-plus-circle me-2"></i>Save Product
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-8">
+            <div class="card shadow border-0 rounded-3">
+                <div class="card-header bg-dark text-white py-3 d-flex justify-content-between align-items-center">
+                    <h5 class="m-0 fw-bold"><i class="bi bi-list-ul me-2"></i>Current Inventory Stock</h5>
+                    <div class="input-group w-50">
+                        <span class="input-group-text bg-light border-0"><i class="bi bi-search text-muted"></i></span>
+                        <input type="text" id="inventorySearch" class="form-control border-0 bg-light" placeholder="Search product, barcode, category...">
+                    </div>
+                </div>
+                
+                <div class="card-body p-0">
+                    {% if messages %}
+                        {% for message in messages %}
+                            <div class="alert alert-{{ message.tags }} m-2 rounded-3">
+                                <i class="bi bi-info-circle me-2"></i>{{ message }}
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0 text-center" id="inventoryTable">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Barcode</th>
+                                    <th>Category</th>
+                                    <th class="text-start">Product Name</th>
+                                    <th>Stock</th>
+                                    <th>Expiry</th>
+                                    <th>Retail</th>
+                                    <th>TP%</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for product in products %}
+                                <tr class="{% if not product.is_active %}opacity-50 bg-light{% endif %} 
+                                           {% if product.expiry_date and product.expiry_date < today %}table-danger{% endif %}">
+                                    <td class="text-muted small font-monospace barcode-val">{{ product.barcode }}</td>
+                                    <td class="text-muted small cat-val text-uppercase">{{ product.category.name|default:"-" }}</td>
+                                    <td class="text-start fw-bold text-secondary name-val">{{ product.name }}</td>
+                                    <td>
+                                        {% if product.stock <= 5 %}
+                                            <span class="badge bg-danger-subtle text-danger px-2 py-1">Low: {{ product.stock }}</span>
+                                        {% else %}
+                                            <span class="badge bg-success-subtle text-success px-2 py-1">{{ product.stock }}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="small">
+                                        {% if product.expiry_date %}
+                                            <span class="{% if product.expiry_date < today %}text-danger fw-bold{% endif %}">
+                                                {{ product.expiry_date|date:"d-m-Y" }}
+                                            </span>
+                                        {% else %}
+                                            <span class="text-muted">-</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="fw-semibold">Rs. {{ product.retail_price }}</td>
+                                    <td><span class="badge bg-warning text-dark">{{ product.tp_percent }}%</span></td>
+                                    <td>
+                                        <div class="btn-group">
+                                            <a href="{% url 'toggle_product_status' product.id %}" class="btn btn-sm btn-outline-warning">
+                                                <i class="bi {% if product.is_active %}bi-eye-fill{% else %}bi-eye-slash-fill{% endif %}"></i>
+                                            </a>
+                                            <button onclick="confirmProductDelete('{{ product.id }}', '{{ product.name }}')" class="btn btn-sm btn-outline-danger ms-1">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="8" class="text-muted py-5 text-center">
+                                        <i class="bi bi-folder-x fs-1 d-block mb-3"></i>
+                                        Inventory khali hai! Naya stock add karein.
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Search Logic
+document.getElementById('inventorySearch').addEventListener('keyup', function() {
+    let filter = this.value.toLowerCase();
+    let rows = document.querySelectorAll("#inventoryTable tbody tr");
+    rows.forEach(row => {
+        let name = row.querySelector(".name-val")?.textContent.toLowerCase() || "";
+        let barcode = row.querySelector(".barcode-val")?.textContent.toLowerCase() || "";
+        let category = row.querySelector(".cat-val")?.textContent.toLowerCase() || "";
+        row.style.display = (name.includes(filter) || barcode.includes(filter) || category.includes(filter)) ? "" : "none";
+    });
+});
+
+// Delete Confirmation
+function confirmProductDelete(id, name) {
+    if(confirm(`Kya aap waqai "${name}" ko delete karna chahte hain?`)) {
+        window.location.href = `/pos/inventory/product-delete/${id}/`;
+    }
+}
+</script>
+{% endblock %}

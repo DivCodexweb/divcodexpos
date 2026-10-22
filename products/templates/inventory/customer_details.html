@@ -1,0 +1,292 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="card shadow-sm border-0 rounded-4 mb-4 border-start border-primary border-4">
+        <div class="card-body p-4 d-flex justify-content-between align-items-center">
+            <div>
+                <h2 class="fw-bold m-0">{{ customer.name }}</h2>
+                <p class="text-muted m-0 small"><i class="bi bi-phone me-1"></i>{{ customer.mobile }}</p>
+            </div>
+            <div class="text-end">
+                <p class="text-muted small text-uppercase fw-bold mb-1">Net Balance</p>
+                <h1 class="fw-bold m-0 {% if customer.total_balance > 0 %}text-danger{% else %}text-success{% endif %}">
+                    Rs. {{ customer.total_balance|default:"0.00" }}
+                </h1>
+            </div>
+        </div>
+    </div>
+
+    <div class="card shadow-sm border-0 rounded-4">
+        <div class="card-header bg-dark text-white py-3">
+            <h5 class="m-0 fw-bold">Transaction History</h5>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0 text-center">
+                    <thead class="bg-light small text-uppercase">
+                        <tr>
+                            <th class="text-start ps-4">Date</th>
+                            <th>Description</th>
+                            <th>Type</th>
+                            <th class="text-danger">Debit (Sale)</th>
+                            <th class="text-success">Credit (Paid)</th>
+                            <th>Balance</th>
+                            <th class="text-end pe-4">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in history %}
+                        <tr>
+                            <td class="text-start ps-4">{{ item.date|date:"d M, Y" }}</td>
+                            <td class="text-start">{{ item.description }}</td>
+                            <td>
+                                <span class="badge {% if item.type == 'Sale' %}bg-primary-subtle text-primary{% else %}bg-success-subtle text-success{% endif %} px-3">
+                                    {{ item.type }}
+                                </span>
+                            </td>
+                            <td class="text-danger">
+                                {% if item.debit > 0 %}Rs. {{ item.debit }}{% else %}-{% endif %}
+                            </td>
+                            <td class="text-success">
+                                {% if item.credit > 0 %}Rs. {{ item.credit }}{% else %}-{% endif %}
+                            </td>
+                            <td class="fw-bold">Rs. {{ item.balance }}</td>
+                            <td class="text-end pe-4">
+                                {% if "Invoice" in item.description or item.type == "Inventory Sale" %}
+                                    <button onclick="printInvoiceByID('{{ item.description }}')" class="btn btn-sm btn-outline-primary border-0">
+                                        <i class="bi bi-file-earmark-text me-1"></i> Duplicate Invoice
+                                    </button>
+                                {% else %}
+<button onclick="generateA4RecoveryPrint('{{ customer.name|escapejs }}', '{{ item.credit }}', '{{ item.description|escapejs }}', '{{ item.balance }}')" class="btn btn-sm btn-outline-success border-0">
+    <i class="bi bi-printer me-1"></i> Duplicate Receipt
+</button>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="7" class="py-5 text-muted italic">No transactions found for this customer.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="mt-4">
+        <button onclick="window.print()" class="btn btn-outline-dark me-2">
+            <i class="bi bi-printer me-2"></i>Print Ledger
+        </button>
+        <a href="{% url 'customer_ledger_list' %}" class="btn btn-secondary">
+            <i class="bi bi-arrow-left me-1"></i> Back to Directory
+        </a>
+    </div>
+</div>
+
+<iframe id="print-frame" style="display:none;"></iframe>
+
+<script>
+/**
+ * Function 1: Invoice description se string clean karke naye URL par bhejta hai
+ */
+function printInvoiceByID(description) {
+    console.log("Original Description from DB:", description);
+    
+    if (!description || description.trim() === "") {
+        alert("Error: Description khali hai!");
+        return;
+    }
+
+    // Hash (#), Invoice text aur colons ko string se strip out kiya
+    let invoiceNo = description.replace('Invoice', '')
+                               .replace(':', '')
+                               .replace('#', '')
+                               .trim();
+    
+    if (!invoiceNo || invoiceNo === "") {
+        alert("Invoice number extract nahi ho saka standard string se.");
+        return;
+    }
+    
+    // SYSTEM MAPPING FIX: Naye route path layout code ke sath connect kiya
+    let dynamicUrl = '/pos/inventory/inventory_invoice_duplicate/' + invoiceNo + '/';
+    
+    printDuplicate(dynamicUrl);
+}
+
+function printDuplicate(url) {
+    console.log("Printing URL Target:", url);
+    
+    if (url.includes('//') || url.includes('undefined')) {
+        alert("Error: Transaction ID/Invoice details missing hain.");
+        return;
+    }
+
+    const frame = document.getElementById('print-frame');
+    if (!frame) {
+        alert("System Error: 'print-frame' element page par nahi mila!");
+        return;
+    }
+
+    // 1. Pehle clean out karein
+    frame.onload = null;
+    
+    // 2. Onload handler pehle set karein, src baad mein badlein (Better lifecycle sync)
+    frame.onload = function() {
+        // Double execution ko yahin par pehle hi block kar dein
+        frame.onload = null; 
+
+        // Thoda sa timeout dein taaki frame render stable ho jaye aur double-trigger na ho
+        setTimeout(function() {
+            try {
+                frame.contentWindow.focus();
+                frame.contentWindow.print();
+            } catch (e) {
+                console.error("Printing layout issue:", e);
+            }
+        }, 300); // 300ms delay browser processing smooth karega
+    };
+
+    // 3. Src ab set karein
+    frame.src = url + "?duplicate=true";
+}
+function generateA4RecoveryPrint(customerName, amountPaid, remarksText, itemBalance) {
+    const frame = document.getElementById('print-frame');
+    if (!frame) {
+        alert("System Error: 'print-frame' element page par nahi mila!");
+        return;
+    }
+
+    const today = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    
+    // ==========================================
+    // HISTORY DATA MATH FIX
+    // ==========================================
+    const receivedAmount = parseFloat(amountPaid) || 0;
+    const remainingBalance = parseFloat(itemBalance) || 0;
+    
+    // Purana balance nikalne ke liye: entry ke baad ka balance + jo cash pay kiya tha
+    const previousBalance = remainingBalance + receivedAmount;
+
+    // Common Receipt Content
+    const receiptHTML = `
+        <div style="padding: 20px; border: 1px solid #ddd; position: relative; border-radius: 8px;">
+            <div style="text-align: center; margin-bottom: 20px; border-bottom: 2px solid #333; padding-bottom: 10px;">
+                <h2 style="margin: 0; color: #1a1a1a;">CASH RECOVERY RECEIPT</h2>
+                <p style="margin: 5px 0; font-size: 14px;">Date: ${today} | Time: ${time}</p>
+                <div style="margin-top: 5px; font-size: 11px; font-weight: bold; color: #666; letter-spacing: 1px;">DUPLICATE COPY</div>
+            </div>
+            
+            <table style="width: 100%; border-collapse: collapse; font-size: 16px;">
+                <tr>
+                    <td style="padding: 10px; border-bottom: 1px solid #eee;"><strong>Customer Name:</strong></td>
+                    <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: right;">${customerName}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 10px; border-bottom: 1px solid #eee;"><strong>Previous Outstanding:</strong></td>
+                    <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: right;">Rs. ${previousBalance.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
+                </tr>
+                <tr style="background-color: #f9f9f9;">
+                    <td style="padding: 10px; border-bottom: 1px solid #eee;"><strong>Amount Received:</strong></td>
+                    <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: right; color: #198754;"><strong>Rs. ${receivedAmount.toLocaleString('en-IN', {minimumFractionDigits: 2})}</strong></td>
+                </tr>
+                <tr style="font-size: 18px; color: #dc3545;">
+                    <td style="padding: 10px; border-bottom: 2px solid #333;"><strong>Current Balance:</strong></td>
+                    <td style="padding: 10px; border-bottom: 2px solid #333; text-align: right;"><strong>Rs. ${remainingBalance.toLocaleString('en-IN', {minimumFractionDigits: 2})}</strong></td>
+                </tr>
+                <tr>
+                    <td style="padding: 10px; font-size: 13px; color: #666;"><strong>Remarks:</strong></td>
+                    <td style="padding: 10px; font-size: 13px; color: #666; text-align: right;">${remarksText || 'N/A'}</td>
+                </tr>
+            </table>
+
+            <div style="margin-top: 50px; display: flex; justify-content: space-between; padding: 0 20px;">
+                <div style="text-align: center;">
+                    <div style="border-top: 1px solid #333; width: 160px; margin-bottom: 5px;"></div>
+                    <span style="font-size: 12px;">Customer Signature</span>
+                </div>
+                <div style="text-align: center;">
+                    <div style="border-top: 1px solid #333; width: 160px; margin-bottom: 5px;"></div>
+                    <span style="font-size: 12px;">Cashier / Office Copy</span>
+                </div>
+            </div>
+        </div>
+    `;
+
+    const fullPageHTML = `
+        <html>
+        <head>
+            <style>
+                @page { size: A4; margin: 0; }
+                body { font-family: sans-serif; margin: 0; padding: 0; background: #fff; }
+                .a4-container { width: 210mm; height: 297mm; padding: 15mm; box-sizing: border-box; display: flex; flex-direction: column; }
+                .copy-section { height: 45%; position: relative; }
+                .label-tag { position: absolute; top: 0; right: 0; background: #333; color: #fff; padding: 3px 10px; font-size: 10px; border-radius: 0 8px 0 8px; text-transform: uppercase; }
+                .divider { border-top: 2px dashed #999; margin: 30px 0; position: relative; }
+                .divider:after { content: '✂ CUT HERE'; position: absolute; top: -10px; left: 45%; background: #fff; padding: 0 10px; font-size: 10px; color: #999; }
+            </style>
+        </head>
+        <body>
+            <div class="a4-container">
+                <div class="copy-section">
+                    <span class="label-tag">Customer Copy (Duplicate)</span>
+                    ${receiptHTML}
+                </div>
+                <div class="divider"></div>
+                <div class="copy-section">
+                    <span class="label-tag">Office Copy (Duplicate)</span>
+                    ${receiptHTML}
+                </div>
+            </div>
+        </body>
+        </html>
+    `;
+
+    // Frame lifecycle configuration
+    frame.onload = null;
+
+    frame.onload = function() {
+        frame.onload = null; 
+        
+        setTimeout(function() {
+            try {
+                frame.contentWindow.focus();
+                frame.contentWindow.print();
+                // NOTE: Kyunki yeh purani duplicate history hai, isme real-time data entry save nahi ho rahi, 
+                // isliye reload hataya hai taaki page flash na ho.
+            } catch (e) {
+                console.error("Receipt printing error:", e);
+            }
+        }, 300);
+    };
+
+    // Form data generation injection
+    const doc = frame.contentWindow.document;
+    doc.open();
+    doc.write(fullPageHTML);
+    doc.close();
+}
+</script>
+
+<style>
+    /* Screen pe buttons dikhein magar print mein hide ho jayein */
+    @media print {
+        .btn, .mt-4, .card-header, .action-col, th:last-child, td:last-child {
+            display: none !important;
+        }
+        .card {
+            box-shadow: none !important;
+            border: none !important;
+        }
+        body {
+            background-color: white !important;
+        }
+    }
+    
+    .table-hover tbody tr:hover {
+        background-color: #f8f9fa;
+    }
+</style>
+{% endblock %}

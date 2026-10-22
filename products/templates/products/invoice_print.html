@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Invoice - {{ sale.invoice_no }}</title>
+    <style>
+        @media print { .no-print { display: none; } }
+        body { font-family: 'Courier New', Courier, monospace; width: 80mm; font-size: 12px; }
+        .text-center { text-align: center; }
+        .line { border-bottom: 1px dashed #000; margin: 5px 0; }
+        table { width: 100%; border-collapse: collapse; }
+    </style>
+</head>
+<body onload="window.print()">
+    <div class="text-center">
+        <h2 style="margin:0;">DivCodeX POS</h2>
+        <p>Sargodha, Pakistan<br>Contact: 0345-XXXXXXX</p>
+    </div>
+    <div class="line"></div>
+    <p>
+        Inv: {{ sale.invoice_no }}<br>
+        Date: {{ sale.date|date:"d-m-Y H:i" }}<br>
+        Mobile: {{ sale.customer_mobile|default:"N/A" }}
+    </p>
+    <div class="line"></div>
+    <table>
+        <thead>
+            <tr>
+                <th align="left">Item</th>
+                <th>Qty</th>
+                <th align="right">Total</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in sale.items.all %}
+            <tr>
+                <td>{{ item.product.name }}</td>
+                <td align="center">{{ item.quantity }}</td>
+                <td align="right">{{ item.subtotal }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <div class="line"></div>
+    <p align="right">
+        Subtotal: Rs. {{ sale.subtotal }}<br>
+        Discount: Rs. {{ sale.discount_amount }}<br>
+        <strong>Total: Rs. {{ sale.total_amount }}</strong>
+    </p>
+    <div class="text-center no-print">
+        <button onclick="window.print()">Print Again</button>
+    </div>
+</body>
+<script>
+    // Page load hote hi print dialog khul jaye
+    window.onload = function() {
+        window.print();
+        // Print ke baad window khud band ho jaye (Optional)
+        // window.onafterprint = function() { window.close(); };
+    };
+</script>
+</html>

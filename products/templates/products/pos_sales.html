@@ -1,0 +1,164 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="row">
+        <div class="col-md-8">
+            <div class="card shadow border-0 p-3">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h4 class="fw-bold">Invoice: <span id="inv-no" class="text-primary">{{ invoice_no }}</span></h4>
+                    <input type="text" id="barcode-input" class="form-control w-50" placeholder="Scan Barcode here..." autofocus>
+                </div>
+                <div class="table-responsive" style="height: 450px;">
+                    <table class="table align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Product</th>
+                                <th>Price</th>
+                                <th width="100">Qty</th>
+                                <th>Subtotal</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="cart-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card shadow border-0 p-4 bg-dark text-white" style="border-radius: 20px;">
+                <h5 class="mb-4">Checkout Details</h5>
+                
+                <div class="mb-3">
+                    <label class="small mb-1">Customer Mobile #</label>
+                    <input type="text" id="customer-mobile" class="form-control" placeholder="03001234567">
+                </div>
+
+                <div class="d-flex justify-content-between mb-2">
+                    <span>Gross Total:</span>
+                    <span id="gross-display">0.00</span>
+                </div>
+
+                <div class="row g-2 mb-3">
+                    <div class="col-6">
+                        <label class="small">Discount (%)</label>
+                        <input type="number" id="disc-percent" class="form-control" oninput="calculateDiscount('percent')">
+                    </div>
+                    <div class="col-6">
+                        <label class="small">Discount (Rs)</label>
+                        <input type="number" id="disc-amount" class="form-control" oninput="calculateDiscount('amount')">
+                    </div>
+                </div>
+
+                <hr class="bg-secondary">
+                <div class="d-flex justify-content-between mb-4">
+                    <h3 class="fw-bold">Payable:</h3>
+                    <h3 class="fw-bold text-warning">Rs. <span id="grand-total">0.00</span></h3>
+                </div>
+
+                <button class="btn btn-warning w-100 fw-bold mb-2 py-3" onclick="saveSale(true)">HOLD SALE</button>
+                <button class="btn btn-success w-100 fw-bold py-3" onclick="saveSale(false)">PAY & PRINT</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script>
+const allProducts = JSON.parse('{{ products_json|safe }}');
+const loadedItems = JSON.parse('{{ sale_data_json|safe }}');
+let cart = [];
+
+$(document).ready(function() {
+    if (loadedItems.length > 0) {
+        cart = loadedItems;
+        renderCart();
+    }
+
+    $('#barcode-input').on('keypress', function(e) {
+        if(e.which == 13) {
+            let code = $(this).val().trim();
+            let product = allProducts.find(p => String(p.barcode) === code);
+            if(product) {
+                let item = cart.find(i => i.id === product.id);
+                if(item) { item.qty++; } 
+                else { cart.push({id: product.id, name: product.name, price: parseFloat(product.price), qty: 1}); }
+                renderCart();
+            } else { alert("Not found!"); }
+            $(this).val('');
+        }
+    });
+});
+
+function calculateDiscount(type) {
+    let gross = cart.reduce((sum, i) => sum + (i.price * i.qty), 0);
+    if (type === 'percent') {
+        let p = parseFloat($('#disc-percent').val()) || 0;
+        $('#disc-amount').val(((gross * p) / 100).toFixed(2));
+    } else {
+        let a = parseFloat($('#disc-amount').val()) || 0;
+        let p = (gross > 0) ? (a / gross) * 100 : 0;
+        $('#disc-percent').val(p.toFixed(2));
+    }
+    renderCart();
+}
+
+function renderCart() {
+    let rows = '';
+    let gross = 0;
+    cart.forEach((item, index) => {
+        let sub = item.price * item.qty;
+        gross += sub;
+        rows += `<tr>
+            <td>${item.name}</td>
+            <td>${item.price}</td>
+            <td><input type="number" value="${item.qty}" class="form-control" onchange="updateQty(${index}, this.value)"></td>
+            <td>${sub.toFixed(2)}</td>
+            <td><button class="btn btn-danger btn-sm" onclick="removeItem(${index})">x</button></td>
+        </tr>`;
+    });
+    
+    let disc = parseFloat($('#disc-amount').val()) || 0;
+    $('#cart-body').html(rows);
+    $('#gross-display').text(gross.toFixed(2));
+    $('#grand-total').text((gross - disc).toFixed(2));
+}
+
+function updateQty(i, v) { if(v > 0) { cart[i].qty = parseInt(v); renderCart(); } }
+function removeItem(i) { cart.splice(i, 1); renderCart(); }
+
+function saveSale(isHold) {
+    if (cart.length === 0) return alert("Cart khali hai!");
+
+    fetch("{% url 'process_sale' %}", {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token }}'
+        },
+        body: JSON.stringify({
+            invoice_no: $('#inv-no').text().trim(),
+            customer_mobile: $('#customer-mobile').val(),
+            items: cart,
+           subtotal: parseFloat($('#gross-total-amount').text()) || 0,
+             discount: parseFloat($('#disc-amount').val()) || 0,
+             total: parseFloat($('#grand-total').text().replace('Rs. ', '')) || 0,
+            is_hold: isHold
+        })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.status === 'success') {
+            // Agar Hold nahi hai to Automatic Print
+            if (!isHold) {
+                let printUrl = `/pos/reprint-invoice/${data.sale_id}/`; 
+                window.open(printUrl, '_blank'); // Naya tab khulay ga
+            }
+            alert("Sale Success!");
+            window.location.reload(); 
+        } else {
+            alert(data.message);
+        }
+    });
+}</script>
+{% endblock %}

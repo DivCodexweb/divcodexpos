@@ -1,0 +1,240 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<div class="container-fluid mt-4">
+    <div class="card shadow mb-4">
+        <div class="card-header py-3 d-flex justify-content-between align-items-center bg-danger text-white">
+            <h5 class="m-0 font-weight-bold"><i class="fas fa-undo"></i> Sales Return / Exchange</h5>
+            <div class="d-flex">
+                <input type="text" id="invoice-search" class="form-control form-control-sm mr-2" placeholder="Enter Invoice No">
+                <button class="btn btn-dark btn-sm" onclick="loadInvoice()">Load Invoice</button>
+            </div>
+        </div>
+
+        <div class="card-body">
+            <div id="invoice-info" class="row mb-3 d-none border p-3 bg-light rounded">
+                <div class="col-md-2"><strong>Inv:</strong> <span id="info-inv" class="text-primary"></span></div>
+                <div class="col-md-2"><strong>Subtotal:</strong> <br>Rs. <span id="info-subtotal">0</span></div>
+                <div class="col-md-3"><strong>Discount:</strong> <br><span id="info-disc-percent" class="badge badge-success">0</span>% (Rs. <span id="info-disc-amount">0</span>)</div>
+                <div class="col-md-3"><strong>Net Total:</strong> <br><span class="h5 text-danger">Rs. <span id="info-total">0</span></span></div>
+                <div class="col-md-2 text-right">
+                    <button class="btn btn-warning btn-sm btn-block" onclick="fullInvoiceReturn()">Full Return</button>
+                </div>
+            </div>
+
+            <hr>
+
+            <div class="row mb-3">
+                <div class="col-md-6">
+                    <label>Scan Product Barcode:</label>
+                    <div class="input-group">
+                        <div class="input-group-prepend">
+                            <span class="input-group-text bg-dark text-white"><i class="fas fa-barcode"></i></span>
+                        </div>
+                        <input type="text" id="return-barcode" class="form-control" placeholder="Scan here..." disabled>
+                    </div>
+                    <small class="text-muted">Only products from the loaded invoice will be accepted.</small>
+                </div>
+            </div>
+
+            <div class="table-responsive">
+                <table class="table table-bordered table-hover" id="return-table">
+                    <thead class="thead-dark">
+                        <tr>
+                            <th>Product Name</th>
+                            <th>Barcode</th>
+                            <th>Bought Qty</th>
+                            <th>Return Qty</th>
+                            <th>Unit Price</th>
+                            <th>Subtotal</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="return-list">
+                        </tbody>
+                </table>
+            </div>
+
+            <div class="row mt-4">
+                <div class="col-md-8">
+                    <label>Reason for Return:</label>
+                    <textarea id="return-reason" class="form-control" rows="3" placeholder="Explain why the product is being returned..."></textarea>
+                </div>
+                <div class="col-md-4 text-right">
+                    <div class="p-3 border rounded bg-white shadow-sm">
+                        <h6 class="text-muted">Total Returnable Amount</h6>
+                        <h2 class="text-danger font-weight-bold">Rs. <span id="grand-return-total">0.00</span></h2>
+                        <button class="btn btn-danger btn-lg btn-block mt-3" onclick="submitReturn()">
+                            <i class="fas fa-check-circle"></i> Process Return
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let originalInvoiceItems = [];
+let returnItems = [];
+let currentSaleId = null;
+
+// 1. Load Invoice via AJAX
+function loadInvoice() {
+    let invNo = $('#invoice-search').val();
+    if (!invNo) return alert("Please enter an invoice number");
+
+    $.ajax({
+        url: "/pos/get-invoice-details/",
+        data: { 'invoice_no': invNo },
+        success: function(response) {
+            if (response.success) {
+                // ... data load karne ka purana code ...
+                $('#invoice-info').removeClass('d-none');
+            }
+        },
+        error: function(xhr) {
+            // Agar backend se 404 ya koi aur error aaye
+            let errorMsg = "Network Connection Error!"; // Default
+            
+            if (xhr.responseJSON && xhr.responseJSON.message) {
+                errorMsg = xhr.responseJSON.message; // Backend wala message ("Invoice number galat hai...")
+            } else if (xhr.status === 404) {
+                errorMsg = "Ghalat Invoice Number! Dubara check karein.";
+            }
+
+            alert("Error: " + errorMsg);
+            $('#invoice-info').addClass('d-none'); // Info hide kar dein agar error ho
+        }
+    });
+}
+// 2. Barcode Handling
+$('#return-barcode').on('keypress', function(e) {
+    if (e.which == 13) {
+        let barcode = $(this).val();
+        let item = originalInvoiceItems.find(i => i.product__barcode === barcode);
+        
+        if (item) {
+            addToReturnTable(item);
+        } else {
+            alert("Error: This product was not part of this invoice!");
+        }
+        $(this).val('');
+    }
+});
+
+// 3. Logic to add/update items in the return list
+function addToReturnTable(item) {
+    let exists = returnItems.find(i => i.product__id === item.product__id);
+    if (exists) {
+        if (exists.qty < item.quantity) {
+            exists.qty++;
+        } else {
+            alert("Warning: Cannot return more than what was purchased!");
+        }
+    } else {
+        returnItems.push({ ...item, qty: 1 });
+    }
+    renderTable();
+}
+
+// 4. Helper for Full Return
+function fullInvoiceReturn() {
+    if(confirm("Add all items from this invoice to the return list?")) {
+        returnItems = JSON.parse(JSON.stringify(originalInvoiceItems)); // Deep copy
+        returnItems.forEach(i => i.qty = i.quantity); // Set return qty to original qty
+        renderTable();
+    }
+}
+
+// 5. Build the Table UI
+function renderTable() {
+    let html = '';
+    returnItems.forEach((item, index) => {
+        let price = parseFloat(item.unit_price) || 0; 
+        let sub = (item.qty * price).toFixed(2);
+
+        html += `
+            <tr>
+                <td><strong>${item.product__name}</strong></td>
+                <td>${item.product__barcode}</td>
+                <td class="text-center">${item.quantity}</td>
+                <td>
+                    <input type="number" class="form-control form-control-sm w-75 mx-auto" value="${item.qty}" 
+                    onchange="updateQty(${index}, this.value)" max="${item.quantity}" min="1">
+                </td>
+                <td>${price.toFixed(2)}</td> 
+                <td class="font-weight-bold">${sub}</td> 
+                <td><button class="btn btn-sm btn-outline-danger" onclick="removeItem(${index})"><i class="fas fa-trash"></i></button></td>
+            </tr>
+        `;
+    });
+    $('#return-list').html(html);
+    if(returnItems.length == 0) $('#return-list').html('<tr><td colspan="7" class="text-center text-muted">No items added for return yet.</td></tr>');
+    updateTotal();
+}
+
+function updateQty(index, val) {
+    let newVal = parseInt(val) || 0;
+    if (newVal > returnItems[index].quantity) {
+        alert("Maximum returnable quantity for this item is " + returnItems[index].quantity);
+        renderTable();
+        return;
+    }
+    returnItems[index].qty = newVal;
+    updateTotal();
+    // No need to full render for every digit, but let's keep it simple for now
+    let price = parseFloat(returnItems[index].unit_price) || 0;
+    $('#return-list tr').eq(index).find('td').eq(5).text((newVal * price).toFixed(2));
+}
+
+function removeItem(index) {
+    returnItems.splice(index, 1);
+    renderTable();
+}
+
+function updateTotal() {
+    let total = returnItems.reduce((sum, item) => {
+        let price = parseFloat(item.unit_price) || 0;
+        return sum + (item.qty * price);
+    }, 0);
+    $('#grand-return-total').text(total.toFixed(2));
+}
+
+// 6. Submit to Django Backend
+function submitReturn() {
+    if (returnItems.length === 0) return alert("Please add at least one item to return.");
+
+    if (!confirm("Are you sure? This will update your stock inventory and record the return.")) return;
+
+    fetch("/pos/process-return/", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "X-CSRFToken": "{{ csrf_token }}"
+        },
+        body: JSON.stringify({
+            sale_id: currentSaleId,
+            items: returnItems.map(i => ({ 
+                product_id: i.product__id, 
+                qty: i.qty, 
+                price: i.unit_price 
+            })),
+            total_return_amount: $('#grand-return-total').text(),
+            reason: $('#return-reason').val()
+        })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            alert("Return Processed Successfully! Inventory has been updated.");
+            window.location.reload();
+        } else {
+            alert("Error: " + data.message);
+        }
+    })
+    .catch(err => alert("Server error occurred while processing return."));
+}
+</script>
+
+{% endblock %}

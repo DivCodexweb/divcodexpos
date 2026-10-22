@@ -1,0 +1,320 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="row justify-content-center">
+        <div class="col-lg-10 col-xl-8">
+            <div class="d-flex align-items-center justify-content-between mb-4">
+                <div>
+                    <h3 class="fw-bold text-dark mb-1"><i class="bi bi-wallet2 text-success me-2"></i>Cash Recovery</h3>
+                    <p class="text-muted small mb-0">Manage customer outstanding balances and payments</p>
+                </div>
+                <div class="text-end">
+                    <span class="badge bg-light text-dark border p-2">
+                        <i class="bi bi-calendar3 me-1"></i> {{ today|date:"d M, Y" }}
+                    </span>
+                </div>
+            </div>
+
+            <div class="card shadow-sm border-0 rounded-4 overflow-hidden">
+                <div class="card-body p-0">
+                    <div class="row g-0">
+                        <div class="col-md-7 p-4 p-lg-5">
+                            <div class="mb-4">
+                                <label class="form-label fw-bold text-secondary"><i class="bi bi-person-search me-1"></i> Find Customer</label>
+                                <select name="customer_id" id="recovery-customer-select" class="form-select select2-box" onchange="loadCustomerStats(this.value)" required>
+                                    <option value="">Search by Name or Mobile No...</option>
+                                    {% for c in customers %}
+                                    <option value="{{ c.id }}" data-mobile="{{ c.mobile }}">
+                                        {{ c.name }} — {{ c.mobile }}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+
+                            <form id="recovery-form" onsubmit="handleRecoverySubmit(event)" class="mt-4">
+                                {% csrf_token %}
+                                <input type="hidden" name="customer_id" id="hidden-customer-id">
+                                
+                                <div class="mb-3">
+                                    <label class="form-label fw-bold"><i class="bi bi-currency-dollar me-1"></i>Amount Received (PKR)</label>
+                                    <div class="input-group input-group-lg">
+                                        <span class="input-group-text bg-success text-white border-0"><i class="bi bi-cash"></i></span>
+                                        <input type="number" step="0.01" name="amount" id="amount-field" class="form-control font-monospace fw-bold border-success text-success" placeholder="0.00" required>
+                                    </div>
+                                </div>
+
+                                <div class="mb-4">
+                                    <label class="form-label fw-bold"><i class="bi bi-chat-left-text me-1"></i> Remarks</label>
+                                    <textarea name="remarks" id="remarks-field" class="form-control" rows="2">Cash Received - Account Update</textarea>
+                                </div>
+
+                                <button type="submit" class="btn btn-success w-100 py-3 fw-bold rounded-3 shadow-sm" id="submit-btn">
+                                    <i class="bi bi-printer-fill me-2"></i>CONFIRM & PRINT RECEIPT
+                                </button>
+                            </form>
+                        </div>
+
+                        <div class="col-md-5 bg-light border-start p-4 p-lg-5" id="stats-panel">
+                            <div class="text-center mb-4">
+                                <div class="rounded-circle bg-white shadow-sm d-inline-flex align-items-center justify-content-center mb-2" style="width: 60px; height: 60px;">
+                                    <i class="bi bi-person-badge fs-2 text-success"></i>
+                                </div>
+                                <h5 class="fw-bold m-0" id="display-customer-name">No Customer Selected</h5>
+                                <span class="text-muted small" id="display-customer-mobile">---</span>
+                            </div>
+
+                            <div class="space-y-3">
+                                <div class="p-3 bg-white rounded-3 border mb-3">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <span class="text-muted small fw-bold">TOTAL PURCHASE</span>
+                                        <i class="bi bi-cart-check text-primary"></i>
+                                    </div>
+                                    <h4 class="fw-bold m-0 mt-1" id="stat-total">Rs. 0</h4>
+                                </div>
+
+                                <div class="p-3 bg-white rounded-3 border mb-3">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <span class="text-muted small fw-bold">TOTAL PAID</span>
+                                        <i class="bi bi-check2-circle text-success"></i>
+                                    </div>
+                                    <h4 class="fw-bold m-0 mt-1 text-success" id="stat-received">Rs. 0</h4>
+                                </div>
+
+                                <div class="p-3 bg-danger bg-opacity-10 rounded-3 border border-danger border-opacity-25">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <span class="text-danger small fw-bold">DUE BALANCE</span>
+                                        <i class="bi bi-exclamation-triangle-fill text-danger"></i>
+                                    </div>
+                                    <h4 class="fw-bold m-0 mt-1 text-danger" id="stat-outstanding">Rs. 0</h4>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<iframe id="print-frame" style="display:none;"></iframe>
+
+<script>
+let globalCustomerOutstanding = 0;
+let selectedCustomerName = "";
+let selectedCustomerMobile = "";
+
+$(document).ready(function() {
+    // Initialize Select2 for smart searching
+    $('.select2-box').select2({
+        theme: 'bootstrap-5',
+        width: '100%',
+        placeholder: 'Search by Name or Mobile No...'
+    });
+});
+
+function loadCustomerStats(customerId) {
+    if(!customerId) {
+        resetStats();
+        return;
+    }
+    
+    document.getElementById('hidden-customer-id').value = customerId;
+    
+    // Get info from SelectBox
+    let selectBox = document.getElementById('recovery-customer-select');
+    let selectedOption = selectBox.options[selectBox.selectedIndex];
+    selectedCustomerName = selectedOption.text.split('—')[0].trim();
+    selectedCustomerMobile = selectedOption.getAttribute('data-mobile') || "N/A";
+
+    // Visual Updates
+    document.getElementById('display-customer-name').innerText = selectedCustomerName;
+    document.getElementById('display-customer-mobile').innerText = selectedCustomerMobile;
+
+    fetch(`/pos/inventory/customer-stats/${customerId}/`)
+    .then(response => response.json())
+    .then(data => {
+        globalCustomerOutstanding = parseFloat(data.outstanding || 0);
+        
+        document.getElementById('stat-total').innerText = "Rs. " + formatNumber(data.total_purchased);
+        document.getElementById('stat-received').innerText = "Rs. " + formatNumber(data.total_paid);
+        document.getElementById('stat-outstanding').innerText = "Rs. " + formatNumber(globalCustomerOutstanding);
+        
+        // Pulse effect on update
+        animateValue('stat-outstanding');
+    });
+}
+
+function formatNumber(num) {
+    return parseFloat(num || 0).toLocaleString('en-IN', {minimumFractionDigits: 2});
+}
+
+function resetStats() {
+    document.getElementById('display-customer-name').innerText = "No Customer Selected";
+    document.getElementById('display-customer-mobile').innerText = "---";
+    document.getElementById('stat-total').innerText = "Rs. 0";
+    document.getElementById('stat-received').innerText = "Rs. 0";
+    document.getElementById('stat-outstanding').innerText = "Rs. 0";
+}
+
+function handleRecoverySubmit(event) {
+    event.preventDefault(); 
+    let customerId = document.getElementById('hidden-customer-id').value;
+    let amount = document.getElementById('amount-field').value;
+
+    if(!customerId) { 
+        Swal.fire('Error', 'Meherbani karke customer select karein!', 'warning');
+        return; 
+    }
+
+    if(parseFloat(amount) <= 0) {
+        Swal.fire('Invalid Amount', 'Wasooli ki raqam 0 se zyada honi chahiye.', 'info');
+        return;
+    }
+
+    let btn = document.getElementById('submit-btn');
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinner-border spinner-border-sm me-2"></span>Processing...`;
+
+    let formData = new URLSearchParams(new FormData(document.getElementById('recovery-form')));
+
+    fetch("/pos/inventory/recovery/", {  
+        method: "POST",
+        headers: { "X-Requested-With": "XMLHttpRequest" },
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if(data.status === 'success') {
+            generateA4RecoveryPrint(selectedCustomerName, amount, document.getElementById('remarks-field').value);
+        } else {
+            alert(data.message);
+            resetSubmitButton();
+        }
+    })
+    .catch(err => {
+        console.error(err);
+        resetSubmitButton();
+    });
+}
+function generateA4RecoveryPrint(customerName, amountPaid, remarksText) {
+    const frame = document.getElementById('print-frame');
+    const today = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    
+    // Calculations for the receipt
+    const previousBalance = parseFloat(globalCustomerOutstanding);
+    const receivedAmount = parseFloat(amountPaid);
+    const remainingBalance = previousBalance - receivedAmount;
+
+    // Common Receipt Content
+    const receiptHTML = `
+        <div style="padding: 20px; border: 1px solid #ddd; position: relative; border-radius: 8px;">
+            <div style="text-align: center; margin-bottom: 20px; border-bottom: 2px solid #333; padding-bottom: 10px;">
+                <h2 style="margin: 0; color: #1a1a1a;">CASH RECOVERY RECEIPT</h2>
+                <p style="margin: 5px 0; font-size: 14px;">Date: ${today} | Time: ${time}</p>
+            </div>
+            
+            <table style="width: 100%; border-collapse: collapse; font-size: 16px;">
+                <tr>
+                    <td style="padding: 10px; border-bottom: 1px solid #eee;"><strong>Customer Name:</strong></td>
+                    <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: right;">${customerName}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 10px; border-bottom: 1px solid #eee;"><strong>Previous Outstanding:</strong></td>
+                    <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: right;">Rs. ${previousBalance.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
+                </tr>
+                <tr style="background-color: #f9f9f9;">
+                    <td style="padding: 10px; border-bottom: 1px solid #eee;"><strong>Amount Received:</strong></td>
+                    <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: right; color: #198754;"><strong>Rs. ${receivedAmount.toLocaleString('en-IN', {minimumFractionDigits: 2})}</strong></td>
+                </tr>
+                <tr style="font-size: 18px; color: #dc3545;">
+                    <td style="padding: 10px; border-bottom: 2px solid #333;"><strong>Current Balance:</strong></td>
+                    <td style="padding: 10px; border-bottom: 2px solid #333; text-align: right;"><strong>Rs. ${remainingBalance.toLocaleString('en-IN', {minimumFractionDigits: 2})}</strong></td>
+                </tr>
+                <tr>
+                    <td style="padding: 10px; font-size: 13px; color: #666;"><strong>Remarks:</strong></td>
+                    <td style="padding: 10px; font-size: 13px; color: #666; text-align: right;">${remarksText}</td>
+                </tr>
+            </table>
+
+            <div style="margin-top: 50px; display: flex; justify-content: space-between; padding: 0 20px;">
+                <div style="text-align: center;">
+                    <div style="border-top: 1px solid #333; width: 160px; margin-bottom: 5px;"></div>
+                    <span style="font-size: 12px;">Customer Signature</span>
+                </div>
+                <div style="text-align: center;">
+                    <div style="border-top: 1px solid #333; width: 160px; margin-bottom: 5px;"></div>
+                    <span style="font-size: 12px;">Cashier / Office Copy</span>
+                </div>
+            </div>
+        </div>
+    `;
+
+    const fullPageHTML = `
+        <html>
+        <head>
+            <style>
+                @page { size: A4; margin: 0; }
+                body { font-family: sans-serif; margin: 0; padding: 0; background: #fff; }
+                .a4-container { width: 210mm; height: 297mm; padding: 15mm; box-sizing: border-box; display: flex; flex-direction: column; }
+                .copy-section { height: 45%; position: relative; }
+                .label-tag { position: absolute; top: 0; right: 0; background: #333; color: #fff; padding: 3px 10px; font-size: 10px; border-radius: 0 8px 0 8px; text-transform: uppercase; }
+                .divider { border-top: 2px dashed #999; margin: 30px 0; position: relative; }
+                .divider:after { content: '✂ CUT HERE'; position: absolute; top: -10px; left: 45%; background: #fff; padding: 0 10px; font-size: 10px; color: #999; }
+            </style>
+        </head>
+        <body>
+            <div class="a4-container">
+                <div class="copy-section">
+                    <span class="label-tag">Customer Copy</span>
+                    ${receiptHTML}
+                </div>
+                <div class="divider"></div>
+                <div class="copy-section">
+                    <span class="label-tag">Office Copy</span>
+                    ${receiptHTML}
+                </div>
+            </div>
+        </body>
+        </html>
+    `;
+
+    const doc = frame.contentWindow.document;
+    doc.open();
+    doc.write(fullPageHTML);
+    doc.close();
+
+    setTimeout(() => {
+        frame.contentWindow.focus();
+        frame.contentWindow.print();
+        window.location.reload(); // Balances update karne ke liye reload
+    }, 500);
+}
+
+function resetSubmitButton() {
+    let btn = document.getElementById('submit-btn');
+    btn.disabled = false;
+    btn.innerHTML = `<i class="bi bi-printer-fill me-2"></i>CONFIRM & PRINT RECEIPT`;
+}
+
+function animateValue(id) {
+    const el = document.getElementById(id);
+    el.style.transition = "transform 0.2s ease";
+    el.style.transform = "scale(1.1)";
+    setTimeout(() => el.style.transform = "scale(1)", 200);
+}
+</script>
+
+<style>
+    .select2-container--bootstrap-5 .select2-selection {
+        border-radius: 8px;
+        padding: 0.5rem;
+        height: calc(3.5rem + 2px);
+        display: flex;
+        align-items: center;
+    }
+    #stats-panel {
+        background: linear-gradient(180deg, #f8f9fa 0%, #e9ecef 100%);
+    }
+</style>
+{% endblock %}

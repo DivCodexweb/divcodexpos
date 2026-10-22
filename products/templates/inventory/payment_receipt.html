@@ -1,0 +1,255 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container fluid py-4">
+    <div class="row justify-content-center">
+        <div class="col-md-7">
+            <div class="card shadow border-0 rounded-3">
+                <div class="card-header bg-success text-white py-3">
+                    <h5 class="m-0 fw-bold"><i class="bi bi-cash-coin me-2"></i>Customer Cash Recovery / Wasooli</h5>
+                </div>
+                <div class="card-body p-4">
+                    
+                    <div class="mb-4">
+                        <label class="form-label fw-bold text-secondary">Select Account Customer</label>
+                        <select id="recovery-customer-select" class="form-select form-select-lg shadow-sm select2-box" onchange="loadCustomerStats(this.value)" required>
+                            <option value="">-- Choose Customer --</option>
+                            {% for c in customers %}
+                            <option value="{{ c.id }}">{{ c.name }} ({{ c.mobile }})</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="row text-center mb-4 d-none" id="stats-row">
+                        <div class="col-md-4 mb-2">
+                            <div class="border rounded-3 p-3 bg-light shadow-sm">
+                                <small class="text-muted text-uppercase fw-bold d-block mb-1" style="font-size: 0.75rem; letter-spacing: 0.5px;">Total Purchased</small>
+                                <h4 class="fw-bold text-dark m-0 font-monospace" id="stat-total">Rs. 0.00</h4>
+                            </div>
+                        </div>
+                        <div class="col-md-4 mb-2">
+                            <div class="border rounded-3 p-3 bg-light shadow-sm">
+                                <small class="text-muted text-uppercase fw-bold d-block mb-1" style="font-size: 0.75rem; letter-spacing: 0.5px;">Total Paid</small>
+                                <h4 class="fw-bold text-success m-0 font-monospace" id="stat-received">Rs. 0.00</h4>
+                            </div>
+                        </div>
+                        <div class="col-md-4 mb-2">
+                            <div class="border rounded-3 p-3 bg-light shadow-sm">
+                                <small class="text-muted text-uppercase fw-bold d-block mb-1" style="font-size: 0.75rem; letter-spacing: 0.5px;">Outstanding Due</small>
+                                <h4 class="fw-bold text-danger m-0 font-monospace" id="stat-outstanding">Rs. 0.00</h4>
+                            </div>
+                        </div>
+                    </div>
+
+                    <form id="recovery-payment-form" onsubmit="submitRecoveryForm(event)">
+                        {% csrf_token %}
+                        <input type="hidden" id="hidden-customer-id">
+                        
+                        <div class="mb-3">
+                            <label class="form-label fw-bold text-dark">Now Amount Received (Rs.)</label>
+                            <input type="number" step="0.01" id="received-amount-field" class="form-control form-control-lg font-monospace text-success fw-bold shadow-sm" placeholder="0.00" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold text-secondary">Remarks / Description</label>
+                            <input type="text" id="remarks-field" class="form-control shadow-sm" value="Cash Received - Account Update">
+                        </div>
+                        
+                        <button type="submit" class="btn btn-success btn-lg w-100 py-3 fw-bold shadow text-uppercase mt-2" id="submit-recovery-btn">
+                            <i class="bi bi-printer-fill me-2"></i>Save & Print Recovery Slip
+                        </button>
+                    </form>
+
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<iframe id="print-frame" style="display:none;"></iframe>
+
+<script>
+let currentOutstandingCustomer = 0;
+let selectedCustomerName = "";
+let selectedCustomerMobile = "";
+
+function loadCustomerStats(customerId) {
+    let statsRow = document.getElementById('stats-row');
+    let hiddenInput = document.getElementById('hidden-customer-id');
+    let selectElem = document.getElementById('recovery-customer-select');
+    
+    if(!customerId) {
+        statsRow.classList.add('d-none');
+        hiddenInput.value = "";
+        return;
+    }
+    
+    hiddenInput.value = customerId;
+    selectedCustomerName = selectElem.options[selectElem.selectedIndex].text.split('(')[0].trim();
+    let mobileMatch = selectElem.options[selectElem.selectedIndex].text.match(/\(([^)]+)\)/);
+    selectedCustomerMobile = mobileMatch ? mobileMatch[1] : "N/A";
+
+    let baseUrl = "{% url 'get_customer_stats' 0 %}"; 
+    let finalUrl = baseUrl.replace('0', customerId);
+
+    fetch(finalUrl)
+    .then(response => {
+        if(!response.ok) { throw new Error("URL Mismatch or Server Error"); }
+        return response.json();
+    })
+    .then(data => {
+        currentOutstandingCustomer = parseFloat(data.outstanding || 0);
+        
+        document.getElementById('stat-total').innerText = "Rs. " + parseFloat(data.total_purchased || 0).toFixed(2);
+        document.getElementById('stat-received').innerText = "Rs. " + parseFloat(data.total_paid || 0).toFixed(2);
+        document.getElementById('stat-outstanding').innerText = "Rs. " + currentOutstandingCustomer.toFixed(2);
+        
+        statsRow.classList.remove('d-none');
+    })
+    .catch(err => {
+        console.error("AJAX Error details:", err);
+        alert("Khata loading failed!");
+    });
+}
+
+function submitRecoveryForm(event) {
+    event.preventDefault(); // Stop normal submission redirection
+    
+    let customerId = document.getElementById('hidden-customer-id').value;
+    let amount = document.getElementById('received-amount-field').value;
+    let remarks = document.getElementById('remarks-field').value;
+    let token = document.querySelector('[name=csrfmiddlewaretoken]').value;
+
+    if(!customerId) {
+        alert("Meherbani farma kar Customer select karein!");
+        return;
+    }
+
+    let btn = document.getElementById('submit-recovery-btn');
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinner-border spinner-border-sm me-2"></span>Saving & Generating Slip...`;
+
+    // AJAX Call to hit the original view
+    fetch("{% url 'customer_payment_receive' %}", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "X-CSRFToken": token
+        },
+        body: `customer_id=${customerId}&amount=${amount}&remarks=${encodeURIComponent(remarks)}`
+    })
+    .then(response => {
+        // Agar backend normal HttpResponseRedirect kar raha hai to status check karke proceed karein
+        if (response.redirected || response.ok) {
+            generateRecoveryPrint(amount, remarks);
+        } else {
+            alert("Payment save karne mein koi masla aya.");
+            btn.disabled = false;
+            btn.innerHTML = `<i class="bi bi-printer-fill me-2"></i>Save & Print Recovery Slip`;
+        }
+    })
+    .catch(err => {
+        console.error("Error submitting recovery:", err);
+        alert("Server communication error!");
+        btn.disabled = false;
+        btn.innerHTML = `<i class="bi bi-printer-fill me-2"></i>Save & Print Recovery Slip`;
+    });
+}
+
+// Sirf generateRecoveryPrint function ko is se replace karein:
+
+function generateRecoveryPrint(amountPaid, remarksText) {
+    let currentDateTime = new Date().toLocaleString();
+    let slipNo = "REC-" + Date.now().toString().slice(-6);
+    let initialOutstanding = currentOutstandingCustomer;
+    let newOutstanding = initialOutstanding - parseFloat(amountPaid);
+
+    // Ye aik single receipt ka content hai
+    const receiptHTML = (label) => `
+        <div style="padding: 20px; border: 1px solid #ddd; position: relative; border-radius: 8px; margin-bottom: 10px;">
+            <span style="position: absolute; top: 0; right: 0; background: #333; color: #fff; padding: 3px 10px; font-size: 10px; border-radius: 0 8px 0 8px;">${label}</span>
+            <div style="text-align: center; border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 15px;">
+                <h2 style="margin: 0;">DIVCODEX POS - RECOVERY SLIP</h2>
+                <p style="margin: 5px 0; font-size: 12px;">Date: ${currentDateTime} | Receipt: ${slipNo}</p>
+            </div>
+            
+            <table style="width: 100%; border-collapse: collapse;">
+                <tr>
+                    <td style="padding: 8px;"><strong>Customer:</strong> ${selectedCustomerName}</td>
+                    <td style="padding: 8px; text-align: right;"><strong>Contact:</strong> ${selectedCustomerMobile}</td>
+                </tr>
+            </table>
+
+            <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
+                <thead>
+                    <tr style="background: #f1f1f1;">
+                        <th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Description</th>
+                        <th style="padding: 10px; border: 1px solid #ddd; text-align: right;">Amount</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td style="padding: 10px; border: 1px solid #ddd;">${remarksText}</td>
+                        <td style="padding: 10px; border: 1px solid #ddd; text-align: right; font-weight: bold;">Rs. ${parseFloat(amountPaid).toLocaleString()}</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <div style="width: 100%; display: flex; justify-content: flex-end;">
+                <table style="width: 50%; border-collapse: collapse;">
+                    <tr>
+                        <td style="padding: 5px;">Previous Balance:</td>
+                        <td style="padding: 5px; text-align: right;">Rs. ${initialOutstanding.toLocaleString()}</td>
+                    </tr>
+                    <tr style="color: #198754; font-weight: bold;">
+                        <td style="padding: 5px;">Paid Amount:</td>
+                        <td style="padding: 5px; text-align: right;">- Rs. ${parseFloat(amountPaid).toLocaleString()}</td>
+                    </tr>
+                    <tr style="border-top: 2px solid #333; font-size: 16px; font-weight: bold;">
+                        <td style="padding: 5px;">Remaining:</td>
+                        <td style="padding: 5px; text-align: right;">Rs. ${newOutstanding.toLocaleString()}</td>
+                    </tr>
+                </table>
+            </div>
+
+            <div style="margin-top: 40px; display: flex; justify-content: space-between;">
+                <div style="border-top: 1px solid #000; width: 150px; text-align: center; font-size: 12px;">Customer Signature</div>
+                <div style="border-top: 1px solid #000; width: 150px; text-align: center; font-size: 12px;">Office Signature</div>
+            </div>
+        </div>
+    `;
+
+    let fullPageHTML = `
+        <html>
+        <head>
+            <style>
+                @page { size: A4; margin: 0; }
+                body { font-family: sans-serif; margin: 0; padding: 0; }
+                .a4-container { width: 210mm; height: 297mm; padding: 10mm; box-sizing: border-box; }
+                .divider { border-top: 2px dashed #999; margin: 20px 0; position: relative; text-align: center; }
+                .divider:after { content: '✂ SEPARATE HERE'; position: absolute; top: -10px; left: 40%; background: #fff; padding: 0 10px; font-size: 10px; color: #999; }
+            </style>
+        </head>
+        <body>
+            <div class="a4-container">
+                ${receiptHTML('CUSTOMER COPY')}
+                
+                <div class="divider"></div>
+                
+                ${receiptHTML('OFFICE COPY')}
+            </div>
+            <script>
+                window.onload = function() { 
+                    window.print(); 
+                    setTimeout(function() { window.parent.location.reload(); }, 1000); 
+                }
+            <\/script>
+        </body>
+        </html>`;
+
+    let iframe = document.getElementById('print-frame');
+    let doc = iframe.contentDocument || iframe.contentWindow.document;
+    doc.open();
+    doc.write(fullPageHTML);
+    doc.close();
+}
+</script>
+{% endblock %}

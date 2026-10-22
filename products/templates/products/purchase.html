@@ -1,0 +1,154 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="fw-bold"><i class="bi bi-cart-check-fill me-2 text-primary"></i> Smart Purchase</h2>
+        <form method="POST"> {% csrf_token %}
+            <button type="submit" name="clear_draft" class="btn btn-outline-danger btn-sm">Reset Draft</button>
+        </form>
+    </div>
+
+    <div class="row">
+        <div class="col-md-5">
+            <div class="card shadow-sm border-0 p-4" style="border-radius: 15px;">
+                <h5 class="fw-bold mb-4 text-secondary">Add Product</h5>
+                
+                <form method="POST" id="purchase-form">
+                    {% csrf_token %}
+                    
+                    <div class="mb-4">
+                        <label class="form-label fw-bold">Scan Barcode or Search Product</label>
+                        <select name="product" id="product-select" class="form-select form-select-lg" required>
+                            <option value="">Search by name or scan barcode...</option>
+                            {% for p in products %}
+                                <option value="{{ p.id }}" data-barcode="{{ p.barcode }}">{{ p.name }} ({{ p.barcode }})</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="row g-3 mb-4">
+                        <div class="col-6">
+                            <label class="form-label small">Quantity</label>
+                            <input type="number" name="quantity" id="qty" class="form-control form-control-lg" value="1" min="1">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small">Purchase Price</label>
+                            <input type="number" step="0.01" name="purchase_price" id="price" class="form-control form-control-lg" placeholder="0.00">
+                        </div>
+                    </div>
+
+                    <button type="submit" name="add_to_list" class="btn btn-primary w-100 py-3 fw-bold shadow">
+                        <i class="bi bi-plus-circle me-2"></i> Add to List
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <div class="col-md-7">
+            <div class="card shadow-sm border-0 p-4 bg-white" style="border-radius: 15px;">
+                <form method="POST">
+                    {% csrf_token %}
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="small fw-bold">Supplier</label>
+                            <select name="supplier" class="form-select" required>
+                                <option value="">Choose Supplier</option>
+                                {% for s in suppliers %}<option value="{{ s.id }}">{{ s.name }}</option>{% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="small fw-bold">Invoice #</label>
+                            <input type="text" name="invoice_no" class="form-control" required placeholder="e.g. INV-1001">
+                        </div>
+                    </div>
+
+                    <div class="table-responsive" style="max-height: 400px;">
+                        <table class="table table-hover align-middle">
+                            <thead class="table-light">
+                                <tr><th>Product</th><th>Qty</th><th>Price</th><th>Total</th></tr>
+                            </thead>
+                            <tbody>
+                                {% for item in temp_items %}
+                                <tr>
+                                    <td>{{ item.product_name }}</td>
+                                    <td>{{ item.qty }}</td>
+                                    <td>{{ item.p_price }}</td>
+                                    <td class="fw-bold text-primary">Rs. {{ item.total }}</td>
+                                </tr>
+                                {% empty %}
+                                <tr><td colspan="4" class="text-center py-5 text-muted">No items in draft.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="d-flex justify-content-between align-items-center mt-3 border-top pt-3">
+                        <h3 class="fw-bold text-success mb-0">Total: Rs. {{ grand_total }}</h3>
+                        <button type="submit" name="finish_purchase" class="btn btn-success btn-lg px-5 fw-bold shadow" {% if not temp_items %}disabled{% endif %}>
+                            FINISH PURCHASE
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+
+<script>
+    $(document).ready(function() {
+        // Dropdown ko searchable banayein
+        const productSelect = $('#product-select').select2({
+            width: '100%',
+            placeholder: "Type product name or scan barcode...",
+            allowClear: true
+        });
+
+        // Barcode Scanner Logic
+        let barcodeBuffer = "";
+        let lastKeyTime = Date.now();
+
+        $(document).keypress(function(e) {
+            const currentTime = Date.now();
+            
+            // Scanners boht tezi se type karte hain (usually < 30ms per character)
+            if (currentTime - lastKeyTime > 100) {
+                barcodeBuffer = ""; // Agar slow typing hai to buffer saaf kar dein
+            }
+            
+            lastKeyTime = currentTime;
+
+            if (e.which === 13) { // Enter key (Scanner end par enter marta hai)
+                if (barcodeBuffer.length > 3) {
+                    e.preventDefault();
+                    findAndSelectProduct(barcodeBuffer);
+                    barcodeBuffer = "";
+                }
+            } else {
+                barcodeBuffer += String.fromCharCode(e.which);
+            }
+        });
+
+        function findAndSelectProduct(barcode) {
+            // Dropdown mein barcode dhoondo
+            let found = false;
+            $('#product-select option').each(function() {
+                if ($(this).data('barcode') == barcode) {
+                    productSelect.val($(this).val()).trigger('change');
+                    found = true;
+                    // Auto-submit agar aap chahte hain to yahan $('#purchase-form').submit(); likh dein
+                }
+            });
+            
+            if (!found) {
+                alert("Product with barcode " + barcode + " not found!");
+            }
+        }
+    });
+</script>
+{% endblock %}

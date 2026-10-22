@@ -1,0 +1,262 @@
+{% extends 'base.html' %}
+{% block content %}
+<style>
+    /* Premium Look Enhancements */
+    .card { border-radius: 15px; overflow: hidden; border: none; }
+    .entry-prod-item { border-left: 4px solid transparent; transition: 0.3s; cursor: pointer; }
+    .entry-prod-item:hover { 
+        border-left: 4px solid #0000e4; 
+        background-color: #f0fff4 !important;
+        transform: scale(1.02);
+    }
+    .table thead { background-color: #212529; color: white; }
+    .table-responsive { border-radius: 10px; }
+    .input-group-text { background-color: #f8f9fa; border-right: none; }
+    .form-control { border-left: none; }
+    .form-control:focus { box-shadow: none; border-color: #ced4da; }
+    .bg-soft-success { background-color: #e8f5e9; color: #0000e4; }
+    .expiry-input { min-width: 140px; }
+</style>
+
+<div class="container-fluid py-4">
+    <div class="row">
+        <div class="col-md-9">
+            <div class="card shadow-lg mb-4">
+                <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center py-3">
+                    <h5 class="m-0 fw-bold"><i class="bi bi-journal-check me-2"></i>Stock Inward Entry</h5>
+                    <span class="badge bg-light text-success fw-bold p-2"><i class="bi bi-hash me-1"></i>New Voucher</span>
+                </div>
+                <div class="card-body p-4">
+                    <div class="row mb-4 bg-light p-3 rounded-3 mx-1 shadow-sm border">
+                        <div class="col-md-7">
+                            <label class="fw-bold small text-muted text-uppercase mb-1"><i class="bi bi-chat-left-dots me-1"></i>Remarks / Supplier Info</label>
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="bi bi-truck text-success"></i></span>
+                                <input type="text" id="voucher-remarks" class="form-control" placeholder="e.g. Lahore Market / Supplier Name">
+                            </div>
+                        </div>
+                        <div class="col-md-5 text-md-end">
+                            <label class="fw-bold small text-muted text-uppercase mb-1"><i class="bi bi-calendar3 me-1"></i>Entry Date</label>
+                            <h5 class="fw-bold text-dark m-0 font-monospace" id="current-date">
+                                <i class="bi bi-clock-history me-2 text-primary"></i>{% now "Y-m-d" %}
+                            </h5>
+                        </div>
+                    </div>
+
+                    <div class="table-responsive border" style="min-height: 350px;">
+                        <table class="table table-hover align-middle text-center mb-0">
+                            <thead>
+                                <tr>
+                                    <th class="text-start ps-3">Product Name</th>
+                                    <th style="width: 80px;">Stock</th>
+                                    <th style="width: 100px;">New Qty</th>
+                                    <th style="width: 150px;">Expiry Date</th>
+                                    <th style="width: 120px;">Retail</th>
+                                    <th style="width: 100px;">TP%</th>
+                                    <th style="width: 130px;">Final TP</th>
+                                    <th style="width: 50px;"><i class="bi bi-trash"></i></th>
+                                </tr>
+                            </thead>
+                            <tbody id="stock-entry-body">
+                                <tr>
+                                    <td colspan="8" class="text-muted py-5 text-center">
+                                        <i class="bi bi-qr-code-scan fs-1 d-block mb-3 opacity-25"></i>
+                                        Search or scan products to start adding stock.
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="text-end mt-4">
+                        <button class="btn btn-primary btn-lg fw-bold px-5 py-3 shadow-lg border-0 rounded-pill" id="btn-save-stock" onclick="submitStockEntry()">
+                            <i class="bi bi-cloud-arrow-up-fill me-2"></i> Save & Update Stock
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="card shadow-lg">
+                <div class="card-header bg-dark text-white py-3">
+                    <h5 class="m-0 fw-bold"><i class="bi bi-search me-2"></i>Quick Search</h5>
+                </div>
+                <div class="card-body p-3">
+                    <div class="input-group mb-3">
+                        <span class="input-group-text bg-white"><i class="bi bi-upc-scan text-primary"></i></span>
+                        <input type="text" id="product-search-input" class="form-control font-monospace" placeholder="Scan or Type..." oninput="filterProducts(this.value)" autofocus>
+                    </div>
+
+                    <div class="list-group overflow-auto border rounded-3" style="max-height: 600px;" id="product-list-panel">
+                        {% for p in products %}
+                        <div class="list-group-item list-group-item-action d-flex flex-column py-3 entry-prod-item"
+                             data-name="{{ p.name | lower }}" data-barcode="{{ p.barcode | lower }}"
+                             onclick="addProductToVoucher('{{ p.id }}', '{{ p.name }}', '{{ p.stock }}', '{{ p.retail_price }}', '{{ p.tp_percent }}')">
+                            <span class="fw-bold text-dark">{{ p.name }}</span>
+                            <div class="d-flex justify-content-between align-items-center mt-1">
+                                <small class="text-muted font-monospace">{{ p.barcode }}</small>
+                                <span class="badge bg-soft-success">Rs. {{ p.retail_price }}</span>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let voucherItems = [];
+
+// 1. Search Logic
+function filterProducts(query) {
+    let q = query.toLowerCase().trim();
+    let items = document.querySelectorAll('.entry-prod-item');
+
+    items.forEach(item => {
+        let name = item.getAttribute('data-name');
+        let barcode = item.getAttribute('data-barcode');
+
+        if (q !== "" && barcode === q) {
+            item.click();
+            document.getElementById('product-search-input').value = "";
+        }
+
+        if (name.includes(q) || barcode.includes(q)) {
+            item.classList.remove('d-none');
+        } else {
+            item.classList.add('d-none');
+        }
+    });
+}
+
+// 2. Add Product Logic
+function addProductToVoucher(id, name, currentStock, retailPrice, tpPercent) {
+    let existing = voucherItems.find(i => i.id === id);
+    if (existing) {
+        existing.qty_added++;
+        renderVoucherTable();
+        return;
+    }
+
+    voucherItems.push({
+        id: id,
+        name: name,
+        current_stock: parseInt(currentStock),
+        qty_added: 1,
+        expiry_date: "", // Default empty
+        retail_price: parseFloat(retailPrice),
+        tp_percent: parseFloat(tpPercent)
+    });
+    renderVoucherTable();
+}
+
+// 3. Render Table Logic
+function renderVoucherTable() {
+    let body = document.getElementById('stock-entry-body');
+    if (voucherItems.length === 0) {
+        body.innerHTML = `<tr><td colspan="8" class="text-muted py-5 text-center"><i class="bi bi-qr-code-scan fs-1 d-block mb-3 opacity-25"></i>Search or scan products to start adding stock.</td></tr>`;
+        return;
+    }
+
+    body.innerHTML = "";
+    voucherItems.forEach((item, index) => {
+        let finalTP = item.retail_price - (item.retail_price * (item.tp_percent / 100));
+
+        body.innerHTML += `
+            <tr class="animate__animated animate__fadeIn">
+                <td class="text-start fw-bold text-secondary ps-3">
+                    <i class="bi bi-arrow-right-short text-success"></i>${item.name}
+                </td>
+                <td><span class="badge bg-light text-dark border font-monospace px-2">${item.current_stock}</span></td>
+                <td>
+                    <input type="number" class="form-control form-control-sm text-center fw-bold" 
+                           value="${item.qty_added}" min="1" 
+                           onchange="updateRowValue(${index}, 'qty_added', this.value)">
+                </td>
+                <td>
+                    <input type="date" class="form-control form-control-sm expiry-input" 
+                           value="${item.expiry_date}" 
+                           onchange="updateRowValue(${index}, 'expiry_date', this.value)">
+                </td>
+                <td>
+                    <input type="number" step="0.01" class="form-control form-control-sm text-center" 
+                           value="${item.retail_price.toFixed(2)}" 
+                           onchange="updateRowValue(${index}, 'retail_price', this.value)">
+                </td>
+                <td>
+                    <input type="number" step="0.01" class="form-control form-control-sm text-center" 
+                           value="${item.tp_percent}" 
+                           onchange="updateRowValue(${index}, 'tp_percent', this.value)">
+                </td>
+                <td class="fw-bold text-primary">Rs. ${finalTP.toFixed(2)}</td>
+                <td>
+                    <button class="btn btn-sm btn-outline-danger border-0" onclick="removeRow(${index})">
+                        <i class="bi bi-trash3-fill"></i>
+                    </button>
+                </td>
+            </tr>`;
+    });
+}
+
+function updateRowValue(index, field, value) {
+    if (field === 'expiry_date') {
+        voucherItems[index][field] = value;
+    } else {
+        voucherItems[index][field] = parseFloat(value || 0);
+    }
+    renderVoucherTable();
+}
+
+function removeRow(index) {
+    voucherItems.splice(index, 1);
+    renderVoucherTable();
+}
+
+// 4. Submit Data Logic
+function submitStockEntry() {
+    if (voucherItems.length === 0) { 
+        alert("Pehle voucher mein items shamil karein!"); 
+        return; 
+    }
+
+    // Basic Validation for Expiry (Optional: can be made mandatory if needed)
+    let btn = document.getElementById('btn-save-stock');
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinner-border spinner-border-sm me-2"></span>Saving...`;
+
+    const payload = { 
+        remarks: document.getElementById('voucher-remarks').value,
+        items: voucherItems 
+    };
+
+    fetch("{% url 'inventory_stock_entry' %}", {
+        method: "POST",
+        headers: { 
+            "Content-Type": "application/json", 
+            "X-CSRFToken": "{{ csrf_token }}" 
+        },
+        body: JSON.stringify(payload)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            alert("✅ " + data.message);
+            location.reload();
+        } else {
+            alert("❌ Error: " + data.message);
+            btn.disabled = false;
+            btn.innerHTML = `<i class="bi bi-cloud-arrow-up-fill me-2"></i> Save & Update Stock`;
+        }
+    })
+    .catch(err => {
+        console.error("Submit Error:", err);
+        alert("Server error! Console check karein.");
+        btn.disabled = false;
+        btn.innerHTML = `<i class="bi bi-cloud-arrow-up-fill me-2"></i> Save & Update Stock`;
+    });
+}
+</script>
+{% endblock %}

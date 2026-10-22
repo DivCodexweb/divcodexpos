@@ -1,0 +1,152 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+
+<div class="container-fluid no-print">
+    <h2 class="mb-4 text-primary fw-bold"><i class="bi bi-printer-fill me-2"></i> Print Barcode Stickers</h2>
+
+    <div class="row">
+        <div class="col-md-4">
+            <div class="card shadow-sm border-0 p-4" style="border-radius: 15px;">
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Search Product (Name/Barcode)</label>
+                    <select id="barcode-product-search" class="form-select select2">
+                        <option value="">Search...</option>
+                        {% for p in products %}
+                        <option value="{{ p.barcode }}" data-name="{{ p.name }}" data-price="{{ p.price }}">
+                            {{ p.barcode }} - {{ p.name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Number of Stickers</label>
+                    <input type="number" id="sticker-count" class="form-control" value="1" min="1">
+                </div>
+
+                <button class="btn btn-primary w-100 fw-bold mb-2" onclick="generateStickers()">
+                    <i class="bi bi-gear-wide-connected me-1"></i> Generate Preview
+                </button>
+                
+                <button class="btn btn-success w-100 fw-bold" onclick="printLabels()">
+                    <i class="bi bi-printer me-1"></i> Print Now
+                </button>
+            </div>
+        </div>
+
+        <div class="col-md-8">
+            <div class="card shadow-sm border-0 p-4 bg-light">
+                <h5 class="fw-bold text-secondary">Print Preview</h5>
+                <hr>
+                <div id="print-area" class="d-flex flex-wrap justify-content-start">
+                    <p class="text-muted w-100 text-center">Select a product and quantity to see stickers.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    /* Screen par stickers kese dikhein */
+    .barcode-sticker {
+        width: 1.5in;
+        padding: 8px;
+        border: 1px dashed #ccc;
+        margin: 5px;
+        text-align: center;
+        background: white;
+        display: inline-block;
+    }
+
+    @media print {
+        /* 1. Sab kuch hide kar do */
+        body * {
+            visibility: hidden;
+        }
+        
+        /* 2. Sirf Print Area aur uske andar ki cheezon ko dikhao */
+        #print-area, #print-area * {
+            visibility: visible;
+        }
+
+        /* 3. Print Area ki position fix karo taake blank page na aaye */
+        #print-area {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100% !important;
+            display: block !important;
+        }
+
+        /* 4. Background aur Borders ko force karo */
+        .barcode-sticker {
+            border: 1px solid #000 !important;
+            margin: 5px !important;
+            page-break-inside: avoid !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+        }
+
+        /* फालतu spaces khatam karne ke liye */
+        @page {
+            margin: 0;
+        }
+        body {
+            margin: 0.5cm;
+        }
+    }
+</style>
+
+<script>
+    function generateStickers() {
+        const select = $('#barcode-product-search');
+        const barcodeValue = select.val();
+        const productName = select.find(':selected').data('name');
+        const productPrice = select.find(':selected').data('price');
+        const count = $('#sticker-count').val();
+        const printArea = $('#print-area');
+
+        if (!barcodeValue) {
+            alert("Please select a product first.");
+            return;
+        }
+
+        printArea.empty();
+
+        for (let i = 0; i < count; i++) {
+            const stickerHtml = `
+                <div class="barcode-sticker">
+                    <div class="sticker-name">${productName}</div>
+                    <svg class="barcode-svg" 
+                        jsbarcode-value="${barcodeValue}"
+                        jsbarcode-width="1.2"
+                        jsbarcode-height="35"
+                        jsbarcode-fontSize="10">
+                    </svg>
+                    <div class="sticker-price">Rs. ${productPrice}</div>
+                </div>
+            `;
+            printArea.append(stickerHtml);
+        }
+
+        // Generate Barcodes
+        JsBarcode(".barcode-svg").init();
+    }
+
+    function printLabels() {
+    // Check karein ke stickers generate ho chuke hain
+    if ($('.barcode-svg').length === 0) {
+        alert("Pehle Preview generate karein!");
+        return;
+    }
+
+    // 500ms ka delay dein taake barcodes load ho jayein
+    setTimeout(function() {
+        window.print();
+    }, 500);
+}
+</script>
+{% endblock %}
